@@ -11,6 +11,7 @@
 """
 
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,12 +19,27 @@ from typing import Optional, Dict, Any, List
 
 import akshare as ak
 import pandas as pd
+import requests
 import yfinance as yf
 
 from src.config import get_config
 from src.search_service import SearchService
 
 logger = logging.getLogger(__name__)
+
+# 东方财富 API 请求头
+EM_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://quote.eastmoney.com/center/gridlist.html",
+    "Accept": "*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+}
+
+# 新浪财经 API 请求头
+SINA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://finance.sina.com.cn/",
+}
 
 
 @dataclass
@@ -129,7 +145,7 @@ class MarketAnalyzer:
         # 3. 获取板块涨跌榜
         self._get_sector_rankings(overview)
         
-        # 4. 获取北向资金（可选）
+        # 4. 获取北向资金（东方财富接口，暂时禁用）
         # self._get_north_flow(overview)
         
         return overview
@@ -256,93 +272,169 @@ class MarketAnalyzer:
         return indices
     
     def _get_market_statistics(self, overview: MarketOverview):
-        """获取市场涨跌统计"""
+        """获取市场涨跌统计（新浪财经，分页）"""
         try:
             logger.info("[大盘] 获取市场涨跌统计...")
-            
-            # 获取全部A股实时行情
-            df = self._call_akshare_with_retry(ak.stock_zh_a_spot_em, "A股实时行情", attempts=2)
-            
-            if df is not None and not df.empty:
-                # 涨跌统计
-                change_col = '涨跌幅'
-                if change_col in df.columns:
-                    df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
-                    overview.up_count = len(df[df[change_col] > 0])
-                    overview.down_count = len(df[df[change_col] < 0])
-                    overview.flat_count = len(df[df[change_col] == 0])
-                    
-                    # 涨停跌停统计（涨跌幅 >= 9.9% 或 <= -9.9%）
-                    overview.limit_up_count = len(df[df[change_col] >= 9.9])
-                    overview.limit_down_count = len(df[df[change_col] <= -9.9])
-                
-                # 两市成交额
-                amount_col = '成交额'
-                if amount_col in df.columns:
-                    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
-                    overview.total_amount = df[amount_col].sum() / 1e8  # 转为亿元
-                
-                logger.info(f"[大盘] 涨:{overview.up_count} 跌:{overview.down_count} 平:{overview.flat_count} "
-                          f"涨停:{overview.limit_up_count} 跌停:{overview.limit_down_count} "
-                          f"成交额:{overview.total_amount:.0f}亿")
-                
+
+            all_items = []
+            page = 1
+            page_size = 80  # 新浪每页最多80条
+
+            url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+
+            while True:
+                time.sleep(random.uniform(0.3, 0.6))
+
+                params = {
+                    "page": page,
+                    "num": page_size,
+                    "sort": "symbol",
+                    "asc": 1,
+                    "node": "hs_a",
+                    "_s_r_a": "page"
+                }
+
+                resp = requests.get(url, params=params, headers=SINA_HEADERS, timeout=30)
+                resp.raise_for_status()
+                items = resp.json()
+
+                if not items:
+                    break
+
+                all_items.extend(items)
+                logger.debug(f"[大盘] 第{page}页获取 {len(items)} 条")
+
+                if len(items) < page_size:
+                    break
+                page += 1
+
+            logger.info(f"[大盘] 共获取 {len(all_items)} 只股票数据")
+
+            # 统计涨跌
+            up_count = down_count = flat_count = limit_up = limit_down = 0
+            total_amount = 0.0
+
+            for item in all_items:
+                change_pct = item.get("changepercent")
+
+                if change_pct is None:
+                    continue
+                change_pct = float(change_pct)
+
+                if change_pct > 0:
+                    up_count += 1
+                elif change_pct < 0:
+                    down_count += 1
+                else:
+                    flat_count += 1
+
+                if change_pct >= 9.9:
+                    limit_up += 1
+                elif change_pct <= -9.9:
+                    limit_down += 1
+
+                # 成交额（新浪返回的是元）
+                amount = item.get("amount", 0)
+                if amount:
+                    total_amount += float(amount)
+
+            overview.up_count = up_count
+            overview.down_count = down_count
+            overview.flat_count = flat_count
+            overview.limit_up_count = limit_up
+            overview.limit_down_count = limit_down
+            overview.total_amount = total_amount / 1e8
+
+            logger.info(
+                f"[大盘] 涨:{up_count} 跌:{down_count} 平:{flat_count} "
+                f"涨停:{limit_up} 跌停:{limit_down} 成交额:{overview.total_amount:.0f}亿"
+            )
+
         except Exception as e:
             logger.error(f"[大盘] 获取涨跌统计失败: {e}")
     
     def _get_sector_rankings(self, overview: MarketOverview):
-        """获取板块涨跌榜"""
+        """获取板块涨跌榜（新浪财经）"""
         try:
             logger.info("[大盘] 获取板块涨跌榜...")
-            
-            # 获取行业板块行情
-            df = self._call_akshare_with_retry(ak.stock_board_industry_name_em, "行业板块行情", attempts=2)
-            
-            if df is not None and not df.empty:
-                change_col = '涨跌幅'
-                if change_col in df.columns:
-                    df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
-                    df = df.dropna(subset=[change_col])
-                    
-                    # 涨幅前5
-                    top = df.nlargest(5, change_col)
-                    overview.top_sectors = [
-                        {'name': row['板块名称'], 'change_pct': row[change_col]}
-                        for _, row in top.iterrows()
-                    ]
-                    
-                    # 跌幅前5
-                    bottom = df.nsmallest(5, change_col)
-                    overview.bottom_sectors = [
-                        {'name': row['板块名称'], 'change_pct': row[change_col]}
-                        for _, row in bottom.iterrows()
-                    ]
-                    
-                    logger.info(f"[大盘] 领涨板块: {[s['name'] for s in overview.top_sectors]}")
-                    logger.info(f"[大盘] 领跌板块: {[s['name'] for s in overview.bottom_sectors]}")
-                    
+
+            time.sleep(random.uniform(0.5, 1.0))
+
+            url = "https://money.finance.sina.com.cn/q/view/newFLJK.php"
+            params = {"param": "industry"}
+
+            resp = requests.get(url, params=params, headers=SINA_HEADERS, timeout=15)
+            resp.raise_for_status()
+
+            # 解析返回的 JS 变量格式
+            # var S_Finance_bankuai_industry = {"hangye_ZA01":"hangye_ZA01,农业,15,10.699,..."}
+            text = resp.text
+            if "=" in text:
+                json_str = text.split("=", 1)[1].strip().rstrip(";")
+                import json
+                data = json.loads(json_str)
+
+                valid_items = []
+                for key, value in data.items():
+                    parts = value.split(",")
+                    if len(parts) >= 6:
+                        name = parts[1]  # 板块名称
+                        try:
+                            change_pct = float(parts[5])  # 涨跌幅
+                            valid_items.append({
+                                "name": name,
+                                "change_pct": change_pct
+                            })
+                        except (ValueError, IndexError):
+                            continue
+
+                # 按涨跌幅排序
+                valid_items.sort(key=lambda x: x["change_pct"], reverse=True)
+
+                overview.top_sectors = valid_items[:5]
+                overview.bottom_sectors = valid_items[-5:][::-1]
+
+                logger.info(f"[大盘] 领涨板块: {[s['name'] for s in overview.top_sectors]}")
+                logger.info(f"[大盘] 领跌板块: {[s['name'] for s in overview.bottom_sectors]}")
+            else:
+                logger.warning("[大盘] 板块数据格式异常")
+
         except Exception as e:
             logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
     
-    # def _get_north_flow(self, overview: MarketOverview):
-    #     """获取北向资金流入"""
-    #     try:
-    #         logger.info("[大盘] 获取北向资金...")
-            
-    #         # 获取北向资金数据
-    #         df = ak.stock_hsgt_north_net_flow_in_em(symbol="北上")
-            
-    #         if df is not None and not df.empty:
-    #             # 取最新一条数据
-    #             latest = df.iloc[-1]
-    #             if '当日净流入' in df.columns:
-    #                 overview.north_flow = float(latest['当日净流入']) / 1e8  # 转为亿元
-    #             elif '净流入' in df.columns:
-    #                 overview.north_flow = float(latest['净流入']) / 1e8
-                    
-    #             logger.info(f"[大盘] 北向资金净流入: {overview.north_flow:.2f}亿")
-                
-    #     except Exception as e:
-    #         logger.warning(f"[大盘] 获取北向资金失败: {e}")
+    def _get_north_flow(self, overview: MarketOverview):
+        """获取北向资金流入（东方财富）"""
+        try:
+            logger.info("[大盘] 获取北向资金...")
+
+            time.sleep(random.uniform(0.5, 1.5))
+
+            url = "https://push2.eastmoney.com/api/qt/kamt/get"
+            params = {
+                "fields1": "f1,f2,f3,f4",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            }
+
+            resp = requests.get(url, params=params, headers=EM_HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("data"):
+                d = data["data"]
+                hk2sh = d.get("hk2sh", {}).get("dayNetAmtIn", 0) or 0
+                hk2sz = d.get("hk2sz", {}).get("dayNetAmtIn", 0) or 0
+                north_flow = (hk2sh + hk2sz) / 1e8
+
+                overview.north_flow = north_flow
+                logger.info(
+                    f"[大盘] 北向资金净流入: {north_flow:.2f}亿 "
+                    f"(沪股通:{hk2sh/1e8:.2f}亿 深股通:{hk2sz/1e8:.2f}亿)"
+                )
+            else:
+                logger.warning("[大盘] 北向资金数据为空")
+
+        except Exception as e:
+            logger.warning(f"[大盘] 获取北向资金失败: {e}")
     
     def search_market_news(self) -> List[Dict]:
         """

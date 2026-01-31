@@ -67,3 +67,7 @@ local/
 run.sh
 
 verify_*.py
+# Claude Code
+.claude/
+CLAUDE.md
+akshare_test.py

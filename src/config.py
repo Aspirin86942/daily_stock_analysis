@@ -312,7 +312,9 @@ class Config:
             pushover_user_key=os.getenv("PUSHOVER_USER_KEY"),
             pushover_api_token=os.getenv("PUSHOVER_API_TOKEN"),
             pushplus_token=os.getenv("PUSHPLUS_TOKEN"),
-            showdoc_push_url=os.getenv("SHOWDOC_PUSH_URL"),  # 加环境变量读取逻辑
+            showdoc_push_url=[
+                r.strip() for r in os.getenv("SHOWDOC_PUSH_URL", "").split(",") if r.strip()
+            ],  # 加环境变量读取逻辑
             custom_webhook_urls=[u.strip() for u in os.getenv("CUSTOM_WEBHOOK_URLS", "").split(",") if u.strip()],
             custom_webhook_bearer_token=os.getenv("CUSTOM_WEBHOOK_BEARER_TOKEN"),
             discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),

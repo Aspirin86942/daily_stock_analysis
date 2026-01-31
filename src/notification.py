@@ -1253,24 +1253,23 @@ class NotificationService:
         # ShowDoc 接口通常接受 title 和 content
         payload = {"title": title, "content": content}
 
-        try:
-            response = requests.post(self._showdoc_url, data=payload, timeout=10)
-
-            if response.status_code == 200:
-                result = response.json()
-                # 根据 wechat_api.py 的逻辑，error_code 为 0 表示成功
-                if result.get("error_code") == 0:
-                    logger.info("ShowDoc 推送成功")
-                    return True
+        success_count = 0
+        for url in self._showdoc_url:
+            try:
+                response = requests.post(url, data=payload, timeout=10)
+                if response.status_code == 200:
+                    result = response.json()
+                    # 根据 wechat_api.py 的逻辑，error_code 为 0 表示成功
+                    if result.get("error_code") == 0:
+                        logger.info(f"ShowDoc 推送成功: {url[:50]}...")
+                        success_count += 1
+                    else:
+                        logger.error(f"ShowDoc 推送失败: {result.get('error_message')}")
                 else:
-                    logger.error(f"ShowDoc 推送失败: {result.get('error_message')}")
-                    return False
-            else:
-                logger.error(f"ShowDoc 请求失败: HTTP {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"发送 ShowDoc 消息异常: {e}")
-            return False
+                    logger.error(f"ShowDoc 请求失败: HTTP {response.status_code}")
+            except Exception as e:
+                logger.error(f"发送 ShowDoc 消息异常: {e}")
+        return success_count > 0
 
     def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
         """

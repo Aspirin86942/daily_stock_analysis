@@ -95,6 +95,11 @@ class Config:
     # ShowDoc 推送 (来自 wechat_api.py)
     showdoc_push_url: Optional[str] = None  # ShowDoc 推送 URL
 
+    # 微信公众号草稿箱配置
+    wechat_mp_appid: Optional[str] = None  # 公众号 AppID
+    wechat_mp_appsecret: Optional[str] = None  # 公众号 AppSecret
+    wechat_mp_cover_path: Optional[str] = None  # 默认封面图路径
+
     # 单股推送模式：每分析完一只股票立即推送，而不是汇总后推送
     single_stock_notify: bool = False
 
@@ -315,6 +320,10 @@ class Config:
             showdoc_push_url=[
                 r.strip() for r in os.getenv("SHOWDOC_PUSH_URL", "").split(",") if r.strip()
             ],  # 加环境变量读取逻辑
+            # 微信公众号草稿箱配置
+            wechat_mp_appid=os.getenv("WECHAT_MP_APPID"),
+            wechat_mp_appsecret=os.getenv("WECHAT_MP_APPSECRET"),
+            wechat_mp_cover_path=os.getenv("WECHAT_MP_COVER_PATH"),
             custom_webhook_urls=[u.strip() for u in os.getenv("CUSTOM_WEBHOOK_URLS", "").split(",") if u.strip()],
             custom_webhook_bearer_token=os.getenv("CUSTOM_WEBHOOK_BEARER_TOKEN"),
             discord_bot_token=os.getenv("DISCORD_BOT_TOKEN"),
@@ -437,6 +446,7 @@ class Config:
             or (self.discord_bot_token and self.discord_main_channel_id)
             or self.discord_webhook_url
             or self.showdoc_push_url
+            or (self.wechat_mp_appid and self.wechat_mp_appsecret)  # 微信公众号草稿箱
         )
         if not has_notification:
             warnings.append("提示：未配置通知渠道，将不发送推送通知")

@@ -64,7 +64,7 @@ htmlcov/
 
 local/
 
-run.sh
+/run.sh
 
 verify_*.py
 # Claude Code

@@ -1538,19 +1538,28 @@ class NotificationService:
                 if not thumb_media_id:
                     logger.warning("封面图上传失败，将尝试使用默认封面")
 
-            # 如果没有封面图，尝试使用项目默认封面
+            # 如果没有封面图，使用周一到周五轮换封面
             if not thumb_media_id:
                 import os
 
-                default_covers = [
-                    "assets/default_cover.jpg",
-                    "assets/cover.jpg",
-                    "assets/default_cover.png",
-                ]
-                for default_path in default_covers:
-                    if os.path.exists(default_path):
-                        thumb_media_id = self._wechat_mp_client.upload_cover_image(default_path)
+                # 根据星期几选择封面图（周一=cover.jpg，周二~周五=cover01~04.jpg）
+                weekday = datetime.now().weekday()
+                weekday_cover_map = {
+                    0: "assets/cover.jpg",     # 周一
+                    1: "assets/cover01.jpg",   # 周二
+                    2: "assets/cover02.jpg",   # 周三
+                    3: "assets/cover03.jpg",   # 周四
+                    4: "assets/cover04.jpg",   # 周五
+                }
+                weekday_cover = weekday_cover_map.get(weekday, "assets/cover.jpg")
+
+                # 优先使用轮换封面，回退到默认封面列表
+                cover_candidates = [weekday_cover, "assets/cover.jpg", "assets/default_cover.jpg"]
+                for cover_path in cover_candidates:
+                    if os.path.exists(cover_path):
+                        thumb_media_id = self._wechat_mp_client.upload_cover_image(cover_path)
                         if thumb_media_id:
+                            logger.info(f"使用封面图: {cover_path}")
                             break
 
             if not thumb_media_id:

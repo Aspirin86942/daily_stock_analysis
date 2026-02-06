@@ -1600,11 +1600,8 @@ class NotificationService:
         """
         将 Markdown 转换为微信公众号兼容的 HTML
 
-        微信公众号对 HTML 有严格限制：
-        1. 不支持外部 CSS 文件，只能使用内联样式
-        2. 不支持 JavaScript
-        3. 图片必须使用微信服务器 URL
-        4. 部分 CSS 属性不支持
+        委托给 WechatMPDraftClient.markdown_to_wechat_mp_html 实现，
+        避免代码重复，确保测试覆盖生产路径。
 
         Args:
             markdown_text: Markdown 格式文本
@@ -1612,105 +1609,11 @@ class NotificationService:
         Returns:
             微信公众号兼容的 HTML
         """
-        # 使用 markdown2 转换
-        html_content = markdown2.markdown(
-            markdown_text,
-            extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
-        )
-
-        # 微信公众号兼容的内联样式
-        # 注意：微信不支持 class，必须使用内联 style
-        styled_html = html_content
-
-        # 替换标题样式
-        styled_html = re.sub(
-            r"<h1>(.*?)</h1>",
-            r'<h1 style="font-size: 22px; color: #333; border-bottom: 2px solid #07c160; padding-bottom: 8px; margin: 20px 0 15px 0;">\1</h1>',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<h2>(.*?)</h2>",
-            r'<h2 style="font-size: 18px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 6px; margin: 18px 0 12px 0;">\1</h2>',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<h3>(.*?)</h3>",
-            r'<h3 style="font-size: 16px; color: #333; margin: 15px 0 10px 0;">\1</h3>',
-            styled_html,
-        )
-
-        # 替换段落样式
-        styled_html = re.sub(
-            r"<p>(.*?)</p>",
-            r'<p style="font-size: 15px; color: #333; line-height: 1.8; margin: 10px 0;">\1</p>',
-            styled_html,
-            flags=re.DOTALL,
-        )
-
-        # 替换表格样式
-        styled_html = re.sub(
-            r"<table>",
-            r'<table style="width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px;">',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<th>(.*?)</th>",
-            r'<th style="background-color: #f6f8fa; border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-weight: bold;">\1</th>',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<td>(.*?)</td>",
-            r'<td style="border: 1px solid #ddd; padding: 8px 12px;">\1</td>',
-            styled_html,
-        )
-
-        # 替换引用块样式
-        styled_html = re.sub(
-            r"<blockquote>(.*?)</blockquote>",
-            r'<blockquote style="border-left: 4px solid #07c160; padding: 10px 15px; margin: 15px 0; background-color: #f9f9f9; color: #666;">\1</blockquote>',
-            styled_html,
-            flags=re.DOTALL,
-        )
-
-        # 替换代码块样式
-        styled_html = re.sub(
-            r"<code>(.*?)</code>",
-            r'<code style="background-color: #f5f5f5; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; font-size: 14px;">\1</code>',
-            styled_html,
-        )
-
-        # 替换列表样式
-        styled_html = re.sub(
-            r"<ul>",
-            r'<ul style="padding-left: 20px; margin: 10px 0;">',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<ol>",
-            r'<ol style="padding-left: 20px; margin: 10px 0;">',
-            styled_html,
-        )
-        styled_html = re.sub(
-            r"<li>(.*?)</li>",
-            r'<li style="margin: 5px 0; line-height: 1.6;">\1</li>',
-            styled_html,
-        )
-
-        # 替换分隔线样式
-        styled_html = re.sub(
-            r"<hr\s*/?>",
-            r'<hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">',
-            styled_html,
-        )
-
-        # 替换加粗样式（微信对 strong 支持较好）
-        styled_html = re.sub(
-            r"<strong>(.*?)</strong>",
-            r'<strong style="color: #333;">\1</strong>',
-            styled_html,
-        )
-
-        return styled_html
+        # 复用 WechatMPDraftClient 的实现
+        from src.infrastructure.notify.wechat_mp import WechatMPDraftClient
+        # 创建临时客户端（不需要真实凭证，仅用于转换）
+        client = WechatMPDraftClient(appid="", appsecret="")
+        return client.markdown_to_wechat_mp_html(markdown_text)
 
     def _send_wechat_chunked(self, content: str, max_bytes: int) -> bool:
         """

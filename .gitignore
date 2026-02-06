@@ -54,6 +54,15 @@ reports/
 *.sqlite
 *.sqlite3
 
+# 本地截图/临时资源
+PixPin_*.png
+
+# 临时脚本
+wechat-test.py
+
+# 资产目录（运行产物或本地素材）
+assets/
+
 # 系统文件
 .DS_Store
 Thumbs.db

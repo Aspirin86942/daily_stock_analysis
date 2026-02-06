@@ -2,12 +2,17 @@
 
 ## 项目结构与模块组织
 - `main.py` 为 CLI 入口，`webui.py` 为 WebUI 入口。
-- `src/` 存放核心分析、配置、存储、通知与流水线逻辑。
+- `src/` 采用分层结构：
+  - `src/domain/` 核心实体与枚举
+  - `src/interfaces/` 接口协议 (Protocol)
+  - `src/services/` 业务服务层
+  - `src/infrastructure/` 外部集成与兼容层
+  - `src/common/` 公共错误与工具
+- 兼容层仍保留旧路径：`src/core/`、`src/notification.py`、`src/analyzer.py`。
 - `data_provider/` 为行情数据源与标准化适配层。
-- `bot/` 为机器人指令与平台适配器。
-- `web/` 为 WebUI 服务端与页面资源。
+- `bot/` 为机器人指令与平台适配器；`web/` 为 WebUI 服务端与页面资源。
 - `docker/` 存放容器与编排配置；`docs/` 为用户与贡献文档。
-- 运行产物：`data/`、`logs/`、`reports/`、`assets/`。
+- 运行产物：`data/`、`logs/`、`reports/`；本地素材 `assets/` 默认忽略提交。
 
 ## 构建、测试与开发命令
 - `pip install -r requirements.txt`：安装依赖（Python 3.10+）。

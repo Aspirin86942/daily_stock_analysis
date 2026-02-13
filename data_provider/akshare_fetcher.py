@@ -27,11 +27,13 @@ import logging
 import os
 import random
 import time
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
+import requests
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -53,6 +55,13 @@ RealtimeQuote = UnifiedRealtimeQuote
 
 
 logger = logging.getLogger(__name__)
+
+
+# 新浪财经 API 请求头
+SINA_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://finance.sina.com.cn/",
+}
 
 
 # User-Agent 池，用于随机轮换
@@ -1368,15 +1377,98 @@ class AkshareFetcher(BaseFetcher):
 
     def get_market_stats(self) -> Optional[Dict[str, Any]]:
         """
-        获取市场涨跌统计
+        获取市场涨跌统计（新浪财经，分页）
 
         数据源优先级：
-        1. 东财接口 (ak.stock_zh_a_spot_em)
-        2. 新浪接口 (ak.stock_zh_a_spot)
+        1. 新浪财经直接 HTTP 请求（稳定）
+        2. 东财接口 (ak.stock_zh_a_spot_em) - 备选
         """
-        import akshare as ak
+        # 优先使用新浪财经直接 HTTP 请求
+        try:
+            logger.info("[大盘] 获取市场涨跌统计（新浪财经）...")
 
-        # 优先东财接口
+            all_items = []
+            page = 1
+            page_size = 80  # 新浪每页最多80条
+
+            url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+
+            while True:
+                time.sleep(random.uniform(0.3, 0.6))
+
+                params = {
+                    "page": page,
+                    "num": page_size,
+                    "sort": "symbol",
+                    "asc": 1,
+                    "node": "hs_a",
+                    "_s_r_a": "page"
+                }
+
+                resp = requests.get(url, params=params, headers=SINA_HEADERS, timeout=30)
+                resp.raise_for_status()
+                items = resp.json()
+
+                if not items:
+                    break
+
+                all_items.extend(items)
+                logger.debug(f"[大盘] 第{page}页获取 {len(items)} 条")
+
+                if len(items) < page_size:
+                    break
+                page += 1
+
+            logger.info(f"[大盘] 共获取 {len(all_items)} 只股票数据")
+
+            # 统计涨跌
+            up_count = down_count = flat_count = limit_up = limit_down = 0
+            total_amount = 0.0
+
+            for item in all_items:
+                change_pct = item.get("changepercent")
+
+                if change_pct is None:
+                    continue
+                change_pct = float(change_pct)
+
+                if change_pct > 0:
+                    up_count += 1
+                elif change_pct < 0:
+                    down_count += 1
+                else:
+                    flat_count += 1
+
+                if change_pct >= 9.9:
+                    limit_up += 1
+                elif change_pct <= -9.9:
+                    limit_down += 1
+
+                # 成交额（新浪返回的是元）
+                amount = item.get("amount", 0)
+                if amount:
+                    total_amount += float(amount)
+
+            stats = {
+                'up_count': up_count,
+                'down_count': down_count,
+                'flat_count': flat_count,
+                'limit_up_count': limit_up,
+                'limit_down_count': limit_down,
+                'total_amount': total_amount / 1e8,  # 转为亿元
+            }
+
+            logger.info(
+                f"[大盘] 涨:{up_count} 跌:{down_count} 平:{flat_count} "
+                f"涨停:{limit_up} 跌停:{limit_down} 成交额:{stats['total_amount']:.0f}亿"
+            )
+            return stats
+
+        except Exception as e:
+            logger.warning(f"[Akshare] 新浪财经获取市场统计失败: {e}，尝试东财接口")
+
+        # 新浪失败后，尝试东财接口
+        import akshare as ak
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -1386,32 +1478,7 @@ class AkshareFetcher(BaseFetcher):
             if df is not None and not df.empty:
                 return self._calc_market_stats(df, change_col='涨跌幅', amount_col='成交额')
         except Exception as e:
-            logger.warning(f"[Akshare] 东财接口获取市场统计失败: {e}，尝试新浪接口")
-
-        # 东财失败后，尝试新浪接口
-        try:
-            self._set_random_user_agent()
-            self._enforce_rate_limit()
-
-            logger.info("[API调用] ak.stock_zh_a_spot() 获取市场统计(新浪)...")
-            df = ak.stock_zh_a_spot()
-            if df is not None and not df.empty:
-                change_col = None
-                for col in ['change_percent', 'changepercent', '涨跌幅', 'trade_ratio']:
-                    if col in df.columns:
-                        change_col = col
-                        break
-
-                amount_col = None
-                for col in ['amount', '成交额', 'trade_amount']:
-                    if col in df.columns:
-                        amount_col = col
-                        break
-
-                if change_col:
-                    return self._calc_market_stats(df, change_col=change_col, amount_col=amount_col)
-        except Exception as e:
-            logger.error(f"[Akshare] 新浪接口获取市场统计也失败: {e}")
+            logger.error(f"[Akshare] 东财接口获取市场统计也失败: {e}")
 
         return None
 
@@ -1441,15 +1508,63 @@ class AkshareFetcher(BaseFetcher):
 
     def get_sector_rankings(self, n: int = 5) -> Optional[Tuple[List[Dict], List[Dict]]]:
         """
-        获取板块涨跌榜
+        获取板块涨跌榜（新浪财经）
 
         数据源优先级：
-        1. 东财接口 (ak.stock_board_industry_name_em)
-        2. 新浪接口 (ak.stock_sector_spot)
+        1. 新浪财经直接 HTTP 请求（稳定）
+        2. 东财接口 (ak.stock_board_industry_name_em) - 备选
         """
-        import akshare as ak
+        # 优先使用新浪财经直接 HTTP 请求
+        try:
+            logger.info("[大盘] 获取板块涨跌榜（新浪财经）...")
 
-        # 优先东财接口
+            time.sleep(random.uniform(0.5, 1.0))
+
+            url = "https://money.finance.sina.com.cn/q/view/newFLJK.php"
+            params = {"param": "industry"}
+
+            resp = requests.get(url, params=params, headers=SINA_HEADERS, timeout=15)
+            resp.raise_for_status()
+
+            # 解析返回的 JS 变量格式
+            # var S_Finance_bankuai_industry = {"hangye_ZA01":"hangye_ZA01,农业,15,10.699,..."}
+            text = resp.text
+            if "=" in text:
+                json_str = text.split("=", 1)[1].strip().rstrip(";")
+                data = json.loads(json_str)
+
+                valid_items = []
+                for key, value in data.items():
+                    parts = value.split(",")
+                    if len(parts) >= 6:
+                        name = parts[1]  # 板块名称
+                        try:
+                            change_pct = float(parts[5])  # 涨跌幅
+                            valid_items.append({
+                                "name": name,
+                                "change_pct": change_pct
+                            })
+                        except (ValueError, IndexError):
+                            continue
+
+                # 按涨跌幅排序
+                valid_items.sort(key=lambda x: x["change_pct"], reverse=True)
+
+                top_sectors = valid_items[:n]
+                bottom_sectors = valid_items[-n:][::-1]
+
+                logger.info(f"[大盘] 领涨板块: {[s['name'] for s in top_sectors]}")
+                logger.info(f"[大盘] 领跌板块: {[s['name'] for s in bottom_sectors]}")
+
+                return top_sectors, bottom_sectors
+            else:
+                logger.warning("[大盘] 板块数据格式异常")
+
+        except Exception as e:
+            logger.warning(f"[Akshare] 新浪财经获取板块排行失败: {e}，尝试东财接口")
+
+        # 新浪失败后，尝试东财接口
+        import akshare as ak
         try:
             self._set_random_user_agent()
             self._enforce_rate_limit()
@@ -1477,49 +1592,9 @@ class AkshareFetcher(BaseFetcher):
 
                     return top_sectors, bottom_sectors
         except Exception as e:
-            logger.warning(f"[Akshare] 东财接口获取板块排行失败: {e}，尝试新浪接口")
+            logger.error(f"[Akshare] 东财接口获取板块排行也失败: {e}")
 
-        # 东财失败后，尝试新浪接口
-        try:
-            self._set_random_user_agent()
-            self._enforce_rate_limit()
-
-            logger.info("[API调用] ak.stock_sector_spot() 获取板块排行(新浪)...")
-            df = ak.stock_sector_spot(indicator='新浪行业')
-            if df is None or df.empty:
-                return None
-
-            change_col = None
-            for col in ['涨跌幅', 'change_pct', '涨幅']:
-                if col in df.columns:
-                    change_col = col
-                    break
-
-            name_col = None
-            for col in ['板块', '板块名称', 'label', 'name']:
-                if col in df.columns:
-                    name_col = col
-                    break
-
-            if not change_col or not name_col:
-                return None
-
-            df[change_col] = pd.to_numeric(df[change_col], errors='coerce')
-            df = df.dropna(subset=[change_col])
-            top = df.nlargest(n, change_col)
-            bottom = df.nsmallest(n, change_col)
-            top_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in top.iterrows()
-            ]
-            bottom_sectors = [
-                {'name': str(row[name_col]), 'change_pct': float(row[change_col])}
-                for _, row in bottom.iterrows()
-            ]
-            return top_sectors, bottom_sectors
-        except Exception as e:
-            logger.error(f"[Akshare] 新浪接口获取板块排行也失败: {e}")
-            return None
+        return None
 
 
 if __name__ == "__main__":

@@ -66,8 +66,16 @@ def run_market_review(
             if send_notification and notifier.is_available():
                 # 添加标题
                 report_content = f"🎯 大盘复盘\n\n{review_report}"
-                
-                success = notifier.send(report_content, email_send_to_all=True)
+
+                # 微信公众号使用专属标题
+                date_str = datetime.now().strftime('%Y-%m-%d')
+                wechat_mp_title = f"大盘复盘 - {date_str}"
+
+                success = notifier.send(
+                    report_content,
+                    email_send_to_all=True,
+                    wechat_mp_title=wechat_mp_title
+                )
                 if success:
                     logger.info("大盘复盘推送成功")
                 else:

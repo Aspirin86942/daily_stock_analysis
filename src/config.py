@@ -123,6 +123,12 @@ class Config:
     astrbot_token: Optional[str] = None
     astrbot_url: Optional[str] = None
 
+    # 微信公众号配置（草稿箱推送）
+    wechat_mp_appid: Optional[str] = None
+    wechat_mp_appsecret: Optional[str] = None
+    wechat_mp_cover_path: Optional[str] = None  # 自定义封面图路径（可选，默认使用周几轮换）
+    wechat_mp_author: str = "AI 分析助手"  # 文章作者
+
     # 单股推送模式：每分析完一只股票立即推送，而不是汇总后推送
     single_stock_notify: bool = False
 
@@ -387,6 +393,11 @@ class Config:
             discord_webhook_url=os.getenv('DISCORD_WEBHOOK_URL'),
             astrbot_url=os.getenv('ASTRBOT_URL'),
             astrbot_token=os.getenv('ASTRBOT_TOKEN'),
+            # 微信公众号配置
+            wechat_mp_appid=os.getenv('WECHAT_MP_APPID'),
+            wechat_mp_appsecret=os.getenv('WECHAT_MP_APPSECRET'),
+            wechat_mp_cover_path=os.getenv('WECHAT_MP_COVER_PATH'),
+            wechat_mp_author=os.getenv('WECHAT_MP_AUTHOR', 'AI 分析助手'),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
             report_type=os.getenv('REPORT_TYPE', 'simple').lower(),
             analysis_delay=float(os.getenv('ANALYSIS_DELAY', '0')),

@@ -57,6 +57,7 @@ class NotificationChannel(Enum):
     CUSTOM = "custom"      # 自定义 Webhook
     DISCORD = "discord"    # Discord 机器人 (Bot)
     ASTRBOT = "astrbot"
+    WECHAT_MP = "wechat_mp"  # 微信公众号草稿箱
     UNKNOWN = "unknown"    # 未知
 
 
@@ -106,6 +107,7 @@ class ChannelDetector:
             NotificationChannel.CUSTOM: "自定义Webhook",
             NotificationChannel.DISCORD: "Discord机器人",
             NotificationChannel.ASTRBOT: "ASTRBOT机器人",
+            NotificationChannel.WECHAT_MP: "微信公众号",
             NotificationChannel.UNKNOWN: "未知渠道",
         }
         return names.get(channel, "未知渠道")
@@ -190,7 +192,15 @@ class NotificationService:
             'astrbot_url': getattr(config, 'astrbot_url', None),
             'astrbot_token': getattr(config, 'astrbot_token', None),
         }
-        
+
+        # 微信公众号配置
+        self._wechat_mp_config = {
+            'appid': getattr(config, 'wechat_mp_appid', None),
+            'appsecret': getattr(config, 'wechat_mp_appsecret', None),
+            'cover_path': getattr(config, 'wechat_mp_cover_path', None),
+            'author': getattr(config, 'wechat_mp_author', 'AI 分析助手'),
+        }
+
         # 消息长度限制（字节）
         self._feishu_max_bytes = getattr(config, 'feishu_max_bytes', 20000)
         self._wechat_max_bytes = getattr(config, 'wechat_max_bytes', 4000)
@@ -254,6 +264,9 @@ class NotificationService:
         # AstrBot
         if self._is_astrbot_configured():
             channels.append(NotificationChannel.ASTRBOT)
+        # 微信公众号
+        if self._is_wechat_mp_configured():
+            channels.append(NotificationChannel.WECHAT_MP)
         return channels
     
     def _is_telegram_configured(self) -> bool:
@@ -272,6 +285,10 @@ class NotificationService:
         # 只要配置了 URL，即视为可用
         url_ok = bool(self._astrbot_config['astrbot_url'])
         return url_ok
+
+    def _is_wechat_mp_configured(self) -> bool:
+        """检查微信公众号配置是否完整"""
+        return bool(self._wechat_mp_config['appid'] and self._wechat_mp_config['appsecret'])
 
     def _is_email_configured(self) -> bool:
         """检查邮件配置是否完整（只需邮箱和授权码）"""
@@ -2989,7 +3006,39 @@ class NotificationService:
 
         logger.warning("AstrBot 配置不完整，跳过推送")
         return False
-    
+
+    def send_to_wechat_mp(self, content: str, title: Optional[str] = None) -> bool:
+        """
+        推送消息到微信公众号草稿箱
+
+        Args:
+            content: Markdown 格式的消息内容
+            title: 文章标题（可选，默认自动生成）
+
+        Returns:
+            是否发送成功
+        """
+        if not self._is_wechat_mp_configured():
+            logger.warning("微信公众号配置不完整，跳过推送")
+            return False
+
+        try:
+            from wechat_mp_publisher import WechatMPPublisher
+
+            publisher = WechatMPPublisher(
+                appid=self._wechat_mp_config['appid'],
+                appsecret=self._wechat_mp_config['appsecret'],
+                cover_path=self._wechat_mp_config['cover_path'],
+                author=self._wechat_mp_config['author'],
+            )
+            return publisher.publish(content, title)
+        except ImportError:
+            logger.error("微信公众号模块未安装，请确保 wechat_mp_publisher.py 存在")
+            return False
+        except Exception as e:
+            logger.error(f"微信公众号推送失败: {e}")
+            return False
+
     def _send_discord_webhook(self, content: str) -> bool:
         """
         使用 Webhook 发送消息到 Discord
@@ -3109,18 +3158,20 @@ class NotificationService:
         self,
         content: str,
         email_stock_codes: Optional[List[str]] = None,
-        email_send_to_all: bool = False
+        email_send_to_all: bool = False,
+        wechat_mp_title: Optional[str] = None
     ) -> bool:
         """
         统一发送接口 - 向所有已配置的渠道发送
-        
+
         遍历所有已配置的渠道，逐一发送消息
-        
+
         Args:
             content: 消息内容（Markdown 格式）
             email_stock_codes: 股票代码列表（可选，用于邮件渠道路由到对应分组邮箱，Issue #268）
             email_send_to_all: 邮件是否发往所有配置邮箱（用于大盘复盘等无股票归属的内容）
-            
+            wechat_mp_title: 微信公众号文章标题（可选，用于区分不同类型的报告）
+
         Returns:
             是否至少有一个渠道发送成功
         """
@@ -3167,6 +3218,8 @@ class NotificationService:
                     result = self.send_to_discord(content)
                 elif channel == NotificationChannel.ASTRBOT:
                     result = self.send_to_astrbot(content)
+                elif channel == NotificationChannel.WECHAT_MP:
+                    result = self.send_to_wechat_mp(content, title=wechat_mp_title)
                 else:
                     logger.warning(f"不支持的通知渠道: {channel}")
                     result = False

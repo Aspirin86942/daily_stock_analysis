@@ -783,6 +783,11 @@ class StockAnalysisPipeline:
                         non_wechat_success = self.notifier.send_to_pushover(report) or non_wechat_success
                     elif channel == NotificationChannel.ASTRBOT:
                         non_wechat_success = self.notifier.send_to_astrbot(report) or non_wechat_success
+                    elif channel == NotificationChannel.WECHAT_MP:
+                        # 决策仪表盘使用专属标题
+                        from datetime import datetime
+                        title = f"个股决策仪表盘 - {datetime.now().strftime('%Y-%m-%d')}"
+                        non_wechat_success = self.notifier.send_to_wechat_mp(report, title=title) or non_wechat_success
                     else:
                         logger.warning(f"未知通知渠道: {channel}")
 

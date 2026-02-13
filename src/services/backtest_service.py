@@ -390,3 +390,94 @@ class BacktestService:
             "advice_breakdown": json.loads(row.advice_breakdown_json) if row.advice_breakdown_json else {},
             "diagnostics": json.loads(row.diagnostics_json) if row.diagnostics_json else {},
         }
+
+    def generate_backtest_report(
+        self,
+        stats: Dict[str, Any],
+        eval_window_days: int,
+    ) -> str:
+        """
+        生成回测报告（Markdown 格式）
+
+        Args:
+            stats: run_backtest 返回的统计数据
+            eval_window_days: 评估窗口天数
+
+        Returns:
+            Markdown 格式的回测报告
+        """
+        from datetime import datetime
+
+        config = get_config()
+        engine_version = str(getattr(config, "backtest_engine_version", "v1"))
+
+        # 获取整体汇总数据
+        summary = self.get_summary(scope="overall", code=None, eval_window_days=eval_window_days)
+
+        report_lines = [
+            f"## 📊 回测报告",
+            f"",
+            f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"**评估窗口**: {eval_window_days} 个交易日",
+            f"**引擎版本**: {engine_version}",
+            f"",
+            f"### 本次执行统计",
+            f"",
+            f"| 指标 | 数值 |",
+            f"|------|------|",
+            f"| 处理记录数 | {stats.get('processed', 0)} |",
+            f"| 保存记录数 | {stats.get('saved', 0)} |",
+            f"| 完成评估 | {stats.get('completed', 0)} |",
+            f"| 数据不足 | {stats.get('insufficient', 0)} |",
+            f"| 错误数 | {stats.get('errors', 0)} |",
+            f"",
+        ]
+
+        if summary:
+            win_rate = summary.get('win_rate_pct')
+            direction_acc = summary.get('direction_accuracy_pct')
+            avg_return = summary.get('avg_stock_return_pct')
+            avg_sim_return = summary.get('avg_simulated_return_pct')
+
+            report_lines.extend([
+                f"### 整体回测汇总",
+                f"",
+                f"| 指标 | 数值 |",
+                f"|------|------|",
+                f"| 总评估数 | {summary.get('total_evaluations', 0)} |",
+                f"| 完成数 | {summary.get('completed_count', 0)} |",
+                f"| 做多建议数 | {summary.get('long_count', 0)} |",
+                f"| 观望建议数 | {summary.get('cash_count', 0)} |",
+                f"| 胜率 | {win_rate:.1f}% |" if win_rate is not None else "| 胜率 | - |",
+                f"| 方向准确率 | {direction_acc:.1f}% |" if direction_acc is not None else "| 方向准确率 | - |",
+                f"| 平均股票收益 | {avg_return:+.2f}% |" if avg_return is not None else "| 平均股票收益 | - |",
+                f"| 平均模拟收益 | {avg_sim_return:+.2f}% |" if avg_sim_return is not None else "| 平均模拟收益 | - |",
+                f"",
+            ])
+
+            # 建议分布
+            advice_breakdown = summary.get('advice_breakdown', {})
+            if advice_breakdown:
+                report_lines.extend([
+                    f"### 建议分布",
+                    f"",
+                    f"| 建议类型 | 数量 | 胜率 |",
+                    f"|----------|------|------|",
+                ])
+                for advice, data in advice_breakdown.items():
+                    if isinstance(data, dict):
+                        count = data.get('count', 0)
+                        wr = data.get('win_rate_pct')
+                        wr_str = f"{wr:.1f}%" if wr is not None else "-"
+                    else:
+                        count = data
+                        wr_str = "-"
+                    report_lines.append(f"| {advice} | {count} | {wr_str} |")
+                report_lines.append("")
+
+        report_lines.extend([
+            f"---",
+            f"*回测仅供参考，不构成投资建议*",
+        ])
+
+        return "\n".join(report_lines)

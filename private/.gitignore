@@ -1,0 +1,10 @@
+*
+!.gitignore
+!data/
+!data/.gitkeep
+!logs/
+!logs/.gitkeep
+!reports/
+!reports/.gitkeep
+!tmp/
+!tmp/.gitkeep

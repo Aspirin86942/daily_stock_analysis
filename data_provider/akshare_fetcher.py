@@ -1286,7 +1286,7 @@ class AkshareFetcher(BaseFetcher):
         当东财接口失败时，使用新浪/腾讯 K 线数据 + 本地算法计算
         """
         try:
-            from .chip_calculator import ChipCalculator
+            from private.modules.chip_calculator import ChipCalculator
 
             logger.info(f"[筹码分布] {stock_code} 尝试本地计算...")
 

@@ -11,7 +11,7 @@ ChipCalculator - 筹码分布本地计算模块
     本模块复用 akshare 的 JS 算法，支持任意 K 线数据源。
 
 使用方法：
-    from data_provider.chip_calculator import ChipCalculator, ChipResult
+    from private.modules.chip_calculator import ChipCalculator, ChipResult
 
     # 方式1：传入 DataFrame
     calculator = ChipCalculator()

@@ -7,7 +7,7 @@
 - 创建草稿到公众号后台
 
 使用方式：
-    from wechat_mp_publisher import publish_to_wechat_mp
+    from private.modules.wechat_mp_publisher import publish_to_wechat_mp
 
     success = publish_to_wechat_mp(
         content="# 标题\n\n正文内容",
@@ -523,7 +523,7 @@ def publish_to_wechat_mp(
         是否创建成功
 
     Example:
-        >>> from wechat_mp_publisher import publish_to_wechat_mp
+        >>> from private.modules.wechat_mp_publisher import publish_to_wechat_mp
         >>> success = publish_to_wechat_mp(
         ...     content="# 标题\\n\\n正文内容",
         ...     appid="your_appid",

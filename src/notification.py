@@ -3023,7 +3023,7 @@ class NotificationService:
             return False
 
         try:
-            from wechat_mp_publisher import WechatMPPublisher
+            from private.modules.wechat_mp_publisher import WechatMPPublisher
 
             publisher = WechatMPPublisher(
                 appid=self._wechat_mp_config['appid'],
@@ -3033,7 +3033,7 @@ class NotificationService:
             )
             return publisher.publish(content, title)
         except ImportError:
-            logger.error("微信公众号模块未安装，请确保 wechat_mp_publisher.py 存在")
+            logger.error("微信公众号模块未安装，请确保 private/modules/wechat_mp_publisher.py 存在")
             return False
         except Exception as e:
             logger.error(f"微信公众号推送失败: {e}")

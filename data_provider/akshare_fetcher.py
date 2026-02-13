@@ -1276,8 +1276,55 @@ class AkshareFetcher(BaseFetcher):
             
         except Exception as e:
             logger.error(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
+            # 东财接口失败，尝试本地计算
+            return self._get_chip_distribution_local(stock_code)
+
+    def _get_chip_distribution_local(self, stock_code: str) -> Optional[ChipDistribution]:
+        """
+        本地计算筹码分布（备选方案）
+
+        当东财接口失败时，使用新浪/腾讯 K 线数据 + 本地算法计算
+        """
+        try:
+            from .chip_calculator import ChipCalculator
+
+            logger.info(f"[筹码分布] {stock_code} 尝试本地计算...")
+
+            # 获取 K 线数据（会自动使用新浪/腾讯等可用数据源）
+            df = self.get_daily_data(stock_code, days=210)
+            if df is None or df.empty:
+                logger.warning(f"[筹码分布] {stock_code} 获取 K 线数据失败，无法本地计算")
+                return None
+
+            # 本地计算
+            calculator = ChipCalculator()
+            result = calculator.calculate(df, code=stock_code)
+
+            if result is None:
+                return None
+
+            # 转换为 ChipDistribution 格式
+            chip = ChipDistribution(
+                code=stock_code,
+                date=result.date,
+                profit_ratio=result.profit_ratio,
+                avg_cost=result.avg_cost,
+                cost_90_low=result.cost_90_low,
+                cost_90_high=result.cost_90_high,
+                concentration_90=result.concentration_90,
+                cost_70_low=result.cost_70_low,
+                cost_70_high=result.cost_70_high,
+                concentration_70=result.concentration_70,
+            )
+
+            logger.info(f"[筹码分布-本地] {stock_code} 日期={chip.date}: 获利比例={chip.profit_ratio:.1%}, "
+                       f"平均成本={chip.avg_cost}, 90%集中度={chip.concentration_90:.2%}")
+            return chip
+
+        except Exception as e:
+            logger.error(f"[筹码分布] {stock_code} 本地计算失败: {e}")
             return None
-    
+
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
         """
         获取增强数据（历史K线 + 实时行情 + 筹码分布）

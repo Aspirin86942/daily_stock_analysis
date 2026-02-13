@@ -40,6 +40,7 @@ except ImportError:
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown
+from src.core.private_module_loader import load_optional_class, build_private_file_candidates
 from bot.models import BotMessage
 
 logger = logging.getLogger(__name__)
@@ -3023,18 +3024,25 @@ class NotificationService:
             return False
 
         try:
-            from private.modules.wechat_mp_publisher import WechatMPPublisher
+            publisher_class = load_optional_class(
+                class_name="WechatMPPublisher",
+                module_candidates=("private.modules.wechat_mp_publisher", "wechat_mp_publisher"),
+                file_candidates=build_private_file_candidates(
+                    module_stem="wechat_mp_publisher",
+                    legacy_relative_paths=("wechat_mp_publisher.py",),
+                ),
+            )
+            if publisher_class is None:
+                logger.error("微信公众号模块未安装，请确保 private/modules/wechat_mp_publisher.py 存在")
+                return False
 
-            publisher = WechatMPPublisher(
+            publisher = publisher_class(
                 appid=self._wechat_mp_config['appid'],
                 appsecret=self._wechat_mp_config['appsecret'],
                 cover_path=self._wechat_mp_config['cover_path'],
                 author=self._wechat_mp_config['author'],
             )
             return publisher.publish(content, title)
-        except ImportError:
-            logger.error("微信公众号模块未安装，请确保 private/modules/wechat_mp_publisher.py 存在")
-            return False
         except Exception as e:
             logger.error(f"微信公众号推送失败: {e}")
             return False

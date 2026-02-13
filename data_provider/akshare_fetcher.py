@@ -42,6 +42,7 @@ from tenacity import (
     before_sleep_log,
 )
 
+from src.core.private_module_loader import load_optional_class, build_private_file_candidates
 from .base import BaseFetcher, DataFetchError, RateLimitError, STANDARD_COLUMNS
 from .realtime_types import (
     UnifiedRealtimeQuote, ChipDistribution, RealtimeSource,
@@ -1286,7 +1287,17 @@ class AkshareFetcher(BaseFetcher):
         当东财接口失败时，使用新浪/腾讯 K 线数据 + 本地算法计算
         """
         try:
-            from private.modules.chip_calculator import ChipCalculator
+            calculator_class = load_optional_class(
+                class_name="ChipCalculator",
+                module_candidates=("private.modules.chip_calculator", "data_provider.chip_calculator"),
+                file_candidates=build_private_file_candidates(
+                    module_stem="chip_calculator",
+                    legacy_relative_paths=("data_provider/chip_calculator.py",),
+                ),
+            )
+            if calculator_class is None:
+                logger.warning(f"[筹码分布] {stock_code} 未找到 ChipCalculator 模块，跳过本地计算")
+                return None
 
             logger.info(f"[筹码分布] {stock_code} 尝试本地计算...")
 
@@ -1297,7 +1308,7 @@ class AkshareFetcher(BaseFetcher):
                 return None
 
             # 本地计算
-            calculator = ChipCalculator()
+            calculator = calculator_class()
             result = calculator.calculate(df, code=stock_code)
 
             if result is None:

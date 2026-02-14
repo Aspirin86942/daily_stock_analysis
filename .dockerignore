@@ -28,3 +28,8 @@ test_*.py
 # 忽略文档
 *.md
 !README.md
+
+# 忽略构建产物
+*.tar
+*.tar.gz
+*.zip

@@ -77,3 +77,14 @@ CLAUDE.md
 static/
 /apps/dsa-desktop/dist/
 /apps/dsa-desktop/node_modules/
+
+# 静态资源（封面图等，不纳入版本控制）
+assets/
+
+# 归档文件
+*.tar
+*.tar.gz
+*.zip
+
+# 环境变量备份（下划线命名变体）
+.env_*
